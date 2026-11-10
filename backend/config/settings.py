@@ -4,8 +4,13 @@ Django settings for Form Submission & Analytics application.
 
 from pathlib import Path
 import os
+from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Load environment variables from .env file
+load_dotenv(BASE_DIR / '.env')
+load_dotenv(BASE_DIR.parent / '.env')
 
 SECRET_KEY = 'django-insecure-#(1u33f9n(me072&oq28n&cl3!+4e_6fkgolk2w25d!z*cht3x'
 
