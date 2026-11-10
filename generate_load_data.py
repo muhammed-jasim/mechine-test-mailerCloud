@@ -123,3 +123,4 @@ print(f" TOTAL HOURLY AGGREGATION ROWS  : {total_aggs:,}")
 print(f" TOTAL DURATION                 : {time.time() - start_time:.2f}s")
 print("=" * 65 + "\n")
 conn.close()
+
