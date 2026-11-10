@@ -266,3 +266,4 @@ export default function SubmissionsPage({ initialFormId, onClearFormFilter }) {
     </div>
   );
 }
+

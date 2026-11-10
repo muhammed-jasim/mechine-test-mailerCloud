@@ -183,3 +183,4 @@ export default function SubmissionModal({ open, onClose, onSuccess }) {
     </Dialog>
   );
 }
+

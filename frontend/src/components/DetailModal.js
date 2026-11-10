@@ -111,3 +111,4 @@ export default function DetailModal({ open, submission, onClose }) {
     </Dialog>
   );
 }
+

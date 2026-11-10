@@ -25,7 +25,7 @@ A high-performance, minimalist Form Submission and Real-time Stream Analytics sy
 | Layer | Technology |
 |---|---|
 | **Backend** | Python 3.11+, Django 5.x, Django REST Framework, Gunicorn / WSGI |
-| **Database** | SQLite (WAL mode, optimized for high write throughput, models 100% PostgreSQL-compatible) |
+| **Database** | PostgreSQL (default, database: `form_analytics`, with SQLite fallback option) |
 | **Streaming & Messaging** | Apache Kafka (topic: `submission-events`), Apache Flink / Streaming Engine |
 | **Load Testing** | Locust (FastHttpUser connection-pooled runner) |
 | **Frontend** | React 19, Vite, JavaScript (.js / .jsx), Material UI, styled-components, Recharts, Axios |
@@ -162,20 +162,24 @@ machine-test/
 
 ### Prerequisites
 - Python 3.11+
+- PostgreSQL 14+ (database: `form_analytics`)
 - Node.js 18+ and npm
 
-### 1. Setup Backend
+### 1. Database & Backend Setup
 ```bash
+# Ensure PostgreSQL is running and create the database:
+createdb form_analytics
+
 # In the root repository directory:
 python3 -m venv venv
 source venv/bin/activate
 pip install -r backend/requirements.txt
 
-# Run migrations
+# Run migrations on PostgreSQL
 cd backend
 python manage.py migrate
 
-# Run unit & integration tests
+# Run unit & integration tests against PostgreSQL
 python manage.py test
 ```
 
@@ -292,3 +296,4 @@ Designed strictly with **white background**, primary color **`#288474`**, subtle
 5. **Interactive Submission Simulator**:
    - "Test Submission" modal accessible directly from the sidebar.
    - Allows sending arbitrary payloads, random UUID keys, or repeated keys to test duplicate detection live.
+

@@ -140,17 +140,33 @@ def on_test_stop(environment, **kwargs):
     total_completed = _stored_count + _duplicates_reported + _errors_count
     rps = total_completed / duration
 
-    # Query the actual database row count directly from SQLite
-    db_path = Path(__file__).resolve().parent / 'backend' / 'db.sqlite3'
+    # Query the actual database row count directly from PostgreSQL (or SQLite)
     actual_db_submissions = 0
     try:
-        conn = sqlite3.connect(str(db_path))
+        import os
+        import psycopg2
+        conn = psycopg2.connect(
+            dbname=os.environ.get('DB_NAME', 'form_analytics'),
+            user=os.environ.get('DB_USER', 'jssim'),
+            password=os.environ.get('DB_PASSWORD', ''),
+            host=os.environ.get('DB_HOST', 'localhost'),
+            port=os.environ.get('DB_PORT', '5432'),
+        )
         c = conn.cursor()
         c.execute("SELECT COUNT(*) FROM submissions_submission")
         actual_db_submissions = c.fetchone()[0]
         conn.close()
-    except Exception as e:
-        actual_db_submissions = f"Error reading DB: {e}"
+    except Exception:
+        try:
+            import sqlite3
+            db_path = Path(__file__).resolve().parent / 'backend' / 'db.sqlite3'
+            conn = sqlite3.connect(str(db_path))
+            c = conn.cursor()
+            c.execute("SELECT COUNT(*) FROM submissions_submission")
+            actual_db_submissions = c.fetchone()[0]
+            conn.close()
+        except Exception as e:
+            actual_db_submissions = f"Error reading DB: {e}"
 
     print("\n" + "=" * 70)
     print("                 OFFICIAL LOCUST LOAD TEST REPORT                ")

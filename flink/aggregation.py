@@ -3,7 +3,7 @@ Apache Flink Stream Aggregation Job
 ====================================
 Consumes submission events from Apache Kafka topic 'submission-events',
 computes rolling/tumbling hourly submission counts grouped by form_id and hour bucket,
-and persists aggregated results into the application database (HourlyAggregation table).
+and persists aggregated results into the PostgreSQL database (HourlyAggregation table).
 
 CRASH RECOVERY & DUPLICATE PREVENTION EXPLANATION:
 --------------------------------------------------
@@ -37,7 +37,6 @@ import sys
 import json
 import time
 import logging
-import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -50,11 +49,36 @@ logger = logging.getLogger('FlinkAggregation')
 
 # Paths & Configurations
 BASE_DIR = Path(__file__).resolve().parent.parent
+DB_ENGINE = os.environ.get('DB_ENGINE', 'postgresql')
+DB_NAME = os.environ.get('DB_NAME', 'form_analytics')
+DB_USER = os.environ.get('DB_USER', 'jssim')
+DB_PASSWORD = os.environ.get('DB_PASSWORD', '')
+DB_HOST = os.environ.get('DB_HOST', 'localhost')
+DB_PORT = os.environ.get('DB_PORT', '5432')
 DB_PATH = os.environ.get('DB_PATH', str(BASE_DIR / 'backend' / 'db.sqlite3'))
+
 KAFKA_BOOTSTRAP_SERVERS = os.environ.get('KAFKA_BOOTSTRAP_SERVERS', 'localhost:9092')
 KAFKA_TOPIC = os.environ.get('KAFKA_TOPIC', 'submission-events')
 CHECKPOINT_DIR = os.environ.get('CHECKPOINT_DIR', str(BASE_DIR / 'flink' / '.flink_checkpoints'))
 CHECKPOINT_FILE = os.path.join(CHECKPOINT_DIR, 'state_checkpoint.json')
+
+
+def get_db_connection():
+    """Returns database connection for PostgreSQL (default) or SQLite fallback."""
+    if 'sqlite' in DB_ENGINE.lower():
+        import sqlite3
+        conn = sqlite3.connect(DB_PATH, timeout=30)
+        return conn, '?'
+    else:
+        import psycopg2
+        conn = psycopg2.connect(
+            dbname=DB_NAME,
+            user=DB_USER,
+            password=DB_PASSWORD,
+            host=DB_HOST,
+            port=DB_PORT,
+        )
+        return conn, '%s'
 
 
 # ============================================================================
@@ -105,7 +129,8 @@ def build_pyflink_job():
     """
     t_env.execute_sql(kafka_source_ddl)
 
-    # 3. Register JDBC / Database Sink Table
+    # 3. Register JDBC / Database Sink Table (PostgreSQL)
+    jdbc_url = f"jdbc:postgresql://{DB_HOST}:{DB_PORT}/{DB_NAME}"
     jdbc_sink_ddl = f"""
         CREATE TABLE hourly_aggregation_sink (
             form_id STRING,
@@ -114,8 +139,10 @@ def build_pyflink_job():
             PRIMARY KEY (form_id, hour_bucket) NOT ENFORCED
         ) WITH (
             'connector' = 'jdbc',
-            'url' = 'jdbc:sqlite:{DB_PATH}',
-            'table-name' = 'submissions_hourlyaggregation'
+            'url' = '{jdbc_url}',
+            'table-name' = 'submissions_hourlyaggregation',
+            'username' = '{DB_USER}',
+            'password' = '{DB_PASSWORD}'
         )
     """
     t_env.execute_sql(jdbc_sink_ddl)
@@ -144,11 +171,10 @@ class StreamHourlyAggregator:
     """
     Streaming worker that continuously consumes submission events,
     computes hourly aggregations per form_id, manages checkpointing,
-    and performs idempotent upserts into the database.
+    and performs idempotent upserts into PostgreSQL / SQLite.
     """
 
-    def __init__(self, db_path=DB_PATH, checkpoint_interval=5):
-        self.db_path = db_path
+    def __init__(self, checkpoint_interval=5):
         self.checkpoint_interval = checkpoint_interval
         # State: { (form_id, hour_bucket_str): count }
         self.window_state = {}
@@ -201,14 +227,17 @@ class StreamHourlyAggregator:
         3. Increment state accumulator.
         """
         form_id = event_data.get('form_id')
-        created_at_str = event_data.get('created_at')
-        if not form_id or not created_at_str:
+        created_at_val = event_data.get('created_at')
+        if not form_id or not created_at_val:
             return
 
-        try:
-            dt = datetime.fromisoformat(created_at_str.replace('Z', '+00:00'))
-        except Exception:
-            dt = datetime.now(timezone.utc)
+        if isinstance(created_at_val, datetime):
+            dt = created_at_val
+        else:
+            try:
+                dt = datetime.fromisoformat(str(created_at_val).replace('Z', '+00:00'))
+            except Exception:
+                dt = datetime.now(timezone.utc)
 
         # Truncate to hour bucket (UTC)
         hour_bucket = dt.replace(minute=0, second=0, microsecond=0)
@@ -229,9 +258,8 @@ class StreamHourlyAggregator:
             return
 
         try:
-            conn = sqlite3.connect(self.db_path, timeout=30)
+            conn, ph = get_db_connection()
             cursor = conn.cursor()
-            cursor.execute("PRAGMA busy_timeout = 30000")
             now_iso = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
 
             params = []
@@ -240,19 +268,20 @@ class StreamHourlyAggregator:
                 count = self.window_state[key]
                 params.append((form_id, hour_bucket_str, count, now_iso))
 
-            cursor.executemany("""
+            query = f"""
                 INSERT INTO submissions_hourlyaggregation (form_id, hour_bucket, count, last_updated)
-                VALUES (?, ?, ?, ?)
+                VALUES ({ph}, {ph}, {ph}, {ph})
                 ON CONFLICT(form_id, hour_bucket) DO UPDATE SET
-                    count = excluded.count,
-                    last_updated = excluded.last_updated
-            """, params)
+                    count = EXCLUDED.count,
+                    last_updated = EXCLUDED.last_updated
+            """
+            cursor.executemany(query, params)
 
             conn.commit()
             conn.close()
             self.dirty_keys.clear()
             self.last_flush_time = time.time()
-            logger.info(f"Flushed {len(params)} hourly aggregation bucket(s) to database.")
+            logger.info(f"Flushed {len(params)} hourly aggregation bucket(s) to PostgreSQL.")
         except Exception as e:
             logger.error(f"Database batch flush error: {e}")
 
@@ -293,13 +322,12 @@ class StreamHourlyAggregator:
 
     def run_database_sync_loop(self):
         """
-        Streaming polling loop that reads newly ingested submissions from the DB,
+        Streaming polling loop that reads newly ingested submissions from PostgreSQL,
         aggregates them into hourly buckets, and persists them.
-        Guarantees 100% functionality even when Kafka is running standalone or offline.
         """
         last_seen_id = 0
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn, ph = get_db_connection()
             c = conn.cursor()
             c.execute("SELECT MAX(id) FROM submissions_submission")
             row = c.fetchone()
@@ -310,15 +338,16 @@ class StreamHourlyAggregator:
         logger.info("Live aggregation sync loop active. Monitoring submissions...")
         while True:
             try:
-                conn = sqlite3.connect(self.db_path, timeout=10)
+                conn, ph = get_db_connection()
                 cursor = conn.cursor()
-                cursor.execute("""
+                query = f"""
                     SELECT id, form_id, email, idempotency_key, created_at
                     FROM submissions_submission
-                    WHERE id > ?
+                    WHERE id > {ph}
                     ORDER BY id ASC
                     LIMIT 2000
-                """, (last_seen_id,))
+                """
+                cursor.execute(query, (last_seen_id,))
                 rows = cursor.fetchall()
                 conn.close()
 
@@ -349,7 +378,7 @@ class StreamHourlyAggregator:
 
 def main():
     logger.info("=== Starting Flink Stream Aggregation Worker ===")
-    logger.info(f"Target Database: {DB_PATH}")
+    logger.info(f"Target Database Engine: {DB_ENGINE} ({DB_NAME})")
     logger.info(f"Kafka Broker: {KAFKA_BOOTSTRAP_SERVERS} | Topic: {KAFKA_TOPIC}")
 
     aggregator = StreamHourlyAggregator()

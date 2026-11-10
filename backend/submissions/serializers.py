@@ -71,3 +71,4 @@ class HourlyAggregationSerializer(serializers.ModelSerializer):
     class Meta:
         model = HourlyAggregation
         fields = ['id', 'form_id', 'hour_bucket', 'count', 'last_updated']
+

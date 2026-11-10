@@ -17,3 +17,4 @@ urlpatterns = [
     path('analytics/overview/', AnalyticsOverviewView.as_view(), name='analytics-overview'),
     path('analytics/hourly/', HourlyAggregationListView.as_view(), name='analytics-hourly'),
 ]
+
