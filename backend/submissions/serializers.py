@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Submission, HourlyAggregation
+from .models import Submission, HourlyAggregation, DuplicateLog
 
 
 class SubmissionCreateSerializer(serializers.Serializer):
@@ -72,3 +72,18 @@ class HourlyAggregationSerializer(serializers.ModelSerializer):
         model = HourlyAggregation
         fields = ['id', 'form_id', 'hour_bucket', 'count', 'last_updated']
 
+
+class DuplicateLogSerializer(serializers.ModelSerializer):
+    original_submission_id = serializers.IntegerField(source='original_submission.id', read_only=True)
+
+    class Meta:
+        model = DuplicateLog
+        fields = [
+            'id',
+            'original_submission_id',
+            'form_id',
+            'idempotency_key',
+            'attempted_email',
+            'attempted_data',
+            'detected_at',
+        ]

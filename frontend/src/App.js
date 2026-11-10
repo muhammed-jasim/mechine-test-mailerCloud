@@ -7,6 +7,7 @@ import Sidebar from './components/Sidebar';
 import Overview from './pages/Overview';
 import FormsPage from './pages/FormsPage';
 import SubmissionsPage from './pages/SubmissionsPage';
+import DuplicatesPage from './pages/DuplicatesPage';
 import AnalyticsPage from './pages/AnalyticsPage';
 import SubmissionModal from './components/SubmissionModal';
 
@@ -104,6 +105,7 @@ export default function App() {
             <Overview
               key={`overview-${refreshTrigger}`}
               onSelectForm={handleViewSubmissionsForForm}
+              onNavigateToDuplicates={() => setTab('duplicates')}
             />
           )}
 
@@ -122,6 +124,10 @@ export default function App() {
             />
           )}
 
+          {currentTab === 'duplicates' && (
+            <DuplicatesPage key={`duplicates-${refreshTrigger}`} />
+          )}
+
           {currentTab === 'analytics' && (
             <AnalyticsPage key={`analytics-${refreshTrigger}`} />
           )}
@@ -136,4 +142,3 @@ export default function App() {
     </ThemeProvider>
   );
 }
-

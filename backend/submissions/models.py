@@ -43,3 +43,32 @@ class HourlyAggregation(models.Model):
 
     def __str__(self):
         return f"{self.form_id} @ {self.hour_bucket}: {self.count}"
+
+
+class DuplicateLog(models.Model):
+    """
+    Audit log that records every duplicate idempotency key attempt
+    intercepted by the system.
+    """
+    original_submission = models.ForeignKey(
+        Submission,
+        on_delete=models.CASCADE,
+        related_name='duplicate_logs',
+        null=True,
+        blank=True
+    )
+    form_id = models.CharField(max_length=128, db_index=True)
+    idempotency_key = models.CharField(max_length=255, db_index=True)
+    attempted_email = models.EmailField(max_length=255)
+    attempted_data = models.JSONField(default=dict, blank=True)
+    detected_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-detected_at']
+        indexes = [
+            models.Index(fields=['form_id', 'detected_at']),
+            models.Index(fields=['idempotency_key']),
+        ]
+
+    def __str__(self):
+        return f"Duplicate [{self.idempotency_key}] on form '{self.form_id}' at {self.detected_at}"

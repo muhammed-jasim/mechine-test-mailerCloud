@@ -13,6 +13,7 @@ import {
   IconButton,
   Tooltip,
   CircularProgress,
+  Button,
 } from '@mui/material';
 import {
   TrendingUp as TrendingUpIcon,
@@ -20,6 +21,8 @@ import {
   Today as TodayIcon,
   Visibility as VisibilityIcon,
   Refresh as RefreshIcon,
+  ShieldOutlined as ShieldIcon,
+  ArrowForward as ArrowForwardIcon,
 } from '@mui/icons-material';
 import {
   ResponsiveContainer,
@@ -44,7 +47,7 @@ const PageHeader = styled.div`
 
 const StatsGrid = styled.div`
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 20px;
   margin-bottom: 28px;
 `;
@@ -100,9 +103,10 @@ const TableCard = styled.div`
   padding: 22px;
   border: 1px solid #f1f5f9;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  margin-bottom: 24px;
 `;
 
-export default function Overview({ onSelectForm }) {
+export default function Overview({ onSelectForm, onNavigateToDuplicates }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [selectedSubmission, setSelectedSubmission] = useState(null);
@@ -121,7 +125,7 @@ export default function Overview({ onSelectForm }) {
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 10000); // 10s auto-refresh
+    const interval = setInterval(fetchData, 8000); // 8s auto-refresh
     return () => clearInterval(interval);
   }, []);
 
@@ -137,9 +141,11 @@ export default function Overview({ onSelectForm }) {
     total_submissions = 0,
     total_forms = 0,
     today_submissions = 0,
+    total_duplicates = 0,
     hourly_chart = [],
     form_distribution = [],
     recent_submissions = [],
+    recent_duplicates = [],
   } = data || {};
 
   return (
@@ -150,7 +156,7 @@ export default function Overview({ onSelectForm }) {
             System Overview
           </Typography>
           <Typography variant="body2" sx={{ color: '#64748b' }}>
-            Real-time form submissions and event processing metrics
+            Real-time form submissions, duplicate protection, and event processing metrics
           </Typography>
         </div>
         <Tooltip title="Refresh now">
@@ -199,6 +205,20 @@ export default function Overview({ onSelectForm }) {
             </Typography>
             <Typography variant="h4" sx={{ fontWeight: 700, color: '#0f172a', mt: 0.5 }}>
               {today_submissions.toLocaleString()}
+            </Typography>
+          </div>
+        </StatCard>
+
+        <StatCard>
+          <IconWrapper bg="#fffbeb" color="#d97706">
+            <ShieldIcon />
+          </IconWrapper>
+          <div>
+            <Typography variant="caption" sx={{ color: '#64748b', fontWeight: 600 }}>
+              DUPLICATES INTERCEPTED
+            </Typography>
+            <Typography variant="h4" sx={{ fontWeight: 700, color: '#d97706', mt: 0.5 }}>
+              {total_duplicates.toLocaleString()}
             </Typography>
           </div>
         </StatCard>
@@ -266,7 +286,7 @@ export default function Overview({ onSelectForm }) {
                     dataKey="form_id"
                     type="category"
                     tick={{ fontSize: 11, fill: '#475569' }}
-                    width={80}
+                    width={90}
                   />
                   <ChartTooltip
                     contentStyle={{
@@ -288,6 +308,7 @@ export default function Overview({ onSelectForm }) {
         </ChartCard>
       </ChartsRow>
 
+      {/* Recent Submissions Table */}
       <TableCard>
         <Typography variant="subtitle1" sx={{ fontWeight: 600, color: '#0f172a', mb: 2 }}>
           Recent Submissions
@@ -355,6 +376,87 @@ export default function Overview({ onSelectForm }) {
         </TableContainer>
       </TableCard>
 
+      {/* Intercepted Duplicates Audit Table */}
+      <TableCard>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <ShieldIcon sx={{ color: '#d97706', fontSize: 22 }} />
+            <Typography variant="subtitle1" sx={{ fontWeight: 600, color: '#0f172a' }}>
+              Recent Duplicate Key Interceptions (Audit Log)
+            </Typography>
+          </Box>
+          {onNavigateToDuplicates && (
+            <Button
+              size="small"
+              endIcon={<ArrowForwardIcon />}
+              onClick={onNavigateToDuplicates}
+              sx={{ color: '#d97706', textTransform: 'none', fontWeight: 600 }}
+            >
+              View Full Audit Ledger
+            </Button>
+          )}
+        </Box>
+        <TableContainer>
+          <Table size="small">
+            <TableHead>
+              <TableRow sx={{ '& th': { color: '#64748b', fontWeight: 600, borderBottom: '1px solid #f1f5f9' } }}>
+                <TableCell>Log ID</TableCell>
+                <TableCell>Status</TableCell>
+                <TableCell>Form ID</TableCell>
+                <TableCell>Idempotency Key</TableCell>
+                <TableCell>Original Record</TableCell>
+                <TableCell>Attempted Email</TableCell>
+                <TableCell>Intercepted At</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {recent_duplicates && recent_duplicates.length > 0 ? (
+                recent_duplicates.map((log) => (
+                  <TableRow key={log.id} hover sx={{ '& td': { borderBottom: '1px solid #f8fafc' } }}>
+                    <TableCell sx={{ fontWeight: 600 }}>#{log.id}</TableCell>
+                    <TableCell>
+                      <Chip
+                        label="INTERCEPTED"
+                        size="small"
+                        sx={{
+                          backgroundColor: '#fef3c7',
+                          color: '#d97706',
+                          fontWeight: 700,
+                          fontSize: '11px',
+                        }}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Chip
+                        label={log.form_id}
+                        size="small"
+                        sx={{ backgroundColor: '#eef7f5', color: '#288474', fontWeight: 600, fontSize: '12px' }}
+                      />
+                    </TableCell>
+                    <TableCell sx={{ fontFamily: 'monospace', fontSize: '12px', color: '#64748b' }}>
+                      {log.idempotency_key}
+                    </TableCell>
+                    <TableCell sx={{ fontWeight: 600, color: '#0f172a' }}>
+                      #{log.original_submission_id}
+                    </TableCell>
+                    <TableCell sx={{ color: '#0f172a' }}>{log.attempted_email}</TableCell>
+                    <TableCell sx={{ fontSize: '13px', color: '#64748b' }}>
+                      {new Date(log.detected_at).toLocaleString()}
+                    </TableCell>
+                  </TableRow>
+                ))
+              ) : (
+                <TableRow>
+                  <TableCell colSpan={7} align="center" sx={{ py: 3, color: '#94a3b8' }}>
+                    No duplicate attempts detected yet. Send a submission with an existing key to observe live interception!
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </TableCard>
+
       <DetailModal
         open={Boolean(selectedSubmission)}
         submission={selectedSubmission}
@@ -363,4 +465,3 @@ export default function Overview({ onSelectForm }) {
     </div>
   );
 }
-

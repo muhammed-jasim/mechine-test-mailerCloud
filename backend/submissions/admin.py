@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Submission, HourlyAggregation
+from .models import Submission, HourlyAggregation, DuplicateLog
 
 
 @admin.register(Submission)
@@ -14,3 +14,10 @@ class HourlyAggregationAdmin(admin.ModelAdmin):
     list_display = ('id', 'form_id', 'hour_bucket', 'count', 'last_updated')
     search_fields = ('form_id',)
     list_filter = ('form_id', 'hour_bucket')
+
+
+@admin.register(DuplicateLog)
+class DuplicateLogAdmin(admin.ModelAdmin):
+    list_display = ('id', 'form_id', 'idempotency_key', 'attempted_email', 'detected_at')
+    search_fields = ('form_id', 'idempotency_key', 'attempted_email')
+    list_filter = ('form_id', 'detected_at')

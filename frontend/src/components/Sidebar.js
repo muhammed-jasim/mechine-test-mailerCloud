@@ -5,6 +5,7 @@ import {
   Description as DescriptionIcon,
   ListAlt as ListAltIcon,
   Timeline as TimelineIcon,
+  ShieldOutlined as ShieldIcon,
   AddCircleOutline as AddIcon,
 } from '@mui/icons-material';
 
@@ -120,6 +121,7 @@ export default function Sidebar({ currentTab, setTab, onOpenSubmitModal }) {
     { id: 'overview', label: 'Overview', icon: <DashboardIcon /> },
     { id: 'forms', label: 'Forms', icon: <DescriptionIcon /> },
     { id: 'submissions', label: 'Submissions', icon: <ListAltIcon /> },
+    { id: 'duplicates', label: 'Duplicate Logs', icon: <ShieldIcon /> },
     { id: 'analytics', label: 'Analytics', icon: <TimelineIcon /> },
   ];
 
@@ -155,4 +157,3 @@ export default function Sidebar({ currentTab, setTab, onOpenSubmitModal }) {
     </SidebarContainer>
   );
 }
-

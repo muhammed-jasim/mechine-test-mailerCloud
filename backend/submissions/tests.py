@@ -4,7 +4,7 @@ from rest_framework.test import APIClient
 from rest_framework import status
 from unittest.mock import patch
 
-from .models import Submission
+from .models import Submission, DuplicateLog
 
 
 class SubmissionAPITests(TestCase):
@@ -68,6 +68,13 @@ class SubmissionAPITests(TestCase):
 
         # Total in DB should still be 1
         self.assertEqual(Submission.objects.count(), 1)
+
+        # Duplicate log must be recorded
+        self.assertEqual(DuplicateLog.objects.count(), 1)
+        log = DuplicateLog.objects.first()
+        self.assertEqual(log.idempotency_key, "idemp-xyz")
+        self.assertEqual(log.attempted_email, "different@example.com")
+        self.assertEqual(log.original_submission_id, first_id)
 
         # Kafka publish should NOT be called a second time
         self.assertEqual(mock_publish.call_count, 1)

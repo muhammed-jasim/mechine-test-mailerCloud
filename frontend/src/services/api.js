@@ -30,6 +30,14 @@ export const getAllSubmissions = async (page = 1, formId = '') => {
   return response.data;
 };
 
+export const getDuplicateLogs = async (page = 1, formId = '') => {
+  const url = formId
+    ? `/api/duplicates/?page=${page}&form_id=${encodeURIComponent(formId)}`
+    : `/api/duplicates/?page=${page}`;
+  const response = await api.get(url);
+  return response.data;
+};
+
 export const getHourlyAnalytics = async (formId = '') => {
   const url = formId 
     ? `/api/analytics/hourly/?form_id=${encodeURIComponent(formId)}`
@@ -44,4 +52,3 @@ export const submitForm = async (payload) => {
 };
 
 export default api;
-
