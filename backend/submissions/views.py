@@ -14,7 +14,6 @@ from .serializers import (
     HourlyAggregationSerializer,
     DuplicateLogSerializer,
 )
-from .kafka_producer import publish_submission_event
 
 
 class StandardPagination(PageNumberPagination):
@@ -55,8 +54,6 @@ class SubmissionCreateListView(APIView):
                     email=email,
                     data=payload_data,
                 )
-            # Only publish to Kafka for brand new submissions
-            publish_submission_event(submission)
             response_status = status.HTTP_201_CREATED
         except IntegrityError:
             # Duplicate idempotency_key detected: fetch existing record

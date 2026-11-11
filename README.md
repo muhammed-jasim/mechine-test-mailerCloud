@@ -213,11 +213,23 @@ Open **`http://localhost:3000`** in your browser.
 
 The Flink job is located at `flink/aggregation.py`.
 
-### Running the Aggregator:
+### 1. Running the Aggregator Worker:
 ```bash
 # From workspace root (with venv active):
 python flink/aggregation.py
 ```
+
+### 2. Inspecting Checkpoint & Aggregation Integrity:
+```bash
+python flink/aggregation.py --status
+```
+
+### 3. Automated Crash Recovery Verification Test:
+To demonstrate that the system handles sudden crashes (`kill -9`) without losing or double-counting records:
+```bash
+python test_crash_recovery.py
+```
+This script starts the worker, ingests 50 submissions, abruptly terminates the process with `SIGKILL`, sends 50 more submissions during downtime, restarts the worker from the checkpoint, and asserts **0 lost records and 0 double-counts**.
 
 ### Crash Recovery & Duplicate Prevention Explanation
 

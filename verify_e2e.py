@@ -118,6 +118,7 @@ c.execute(query, (form_id_pagination,))
 rows = c.fetchall()
 for r in rows:
     agg.process_event({'id': r[0], 'form_id': r[1], 'email': r[2], 'idempotency_key': r[3], 'created_at': r[4]})
+    agg.last_processed_id = max(agg.last_processed_id, r[0])
 agg.save_checkpoint()
 conn.close()
 

@@ -2,7 +2,6 @@ from django.test import TestCase
 from django.urls import reverse
 from rest_framework.test import APIClient
 from rest_framework import status
-from unittest.mock import patch
 
 from .models import Submission, DuplicateLog
 
@@ -11,9 +10,8 @@ class SubmissionAPITests(TestCase):
     def setUp(self):
         self.client = APIClient()
 
-    @patch('submissions.views.publish_submission_event')
-    def test_create_valid_submission(self, mock_publish):
-        """Test submitting valid data creates a record and triggers Kafka publish."""
+    def test_create_valid_submission(self):
+        """Test submitting valid data creates a record."""
         payload = {
             "form_id": "contact-form",
             "idempotency_key": "test-key-001",
@@ -33,14 +31,10 @@ class SubmissionAPITests(TestCase):
         self.assertEqual(sub.email, "user@example.com")
         self.assertEqual(sub.data, {"name": "Alice", "message": "Hello world"})
 
-        # Verify Kafka publisher called once
-        mock_publish.assert_called_once()
-
-    @patch('submissions.views.publish_submission_event')
-    def test_duplicate_idempotency_key_returns_existing_record(self, mock_publish):
+    def test_duplicate_idempotency_key_returns_existing_record(self):
         """
         Duplicate idempotency keys should return the existing record (200 OK)
-        without creating a new record and without re-publishing to Kafka.
+        without creating a new record.
         """
         payload1 = {
             "form_id": "feedback-form",
@@ -51,7 +45,6 @@ class SubmissionAPITests(TestCase):
         res1 = self.client.post('/api/submissions/', payload1, format='json')
         self.assertEqual(res1.status_code, status.HTTP_201_CREATED)
         first_id = res1.data['id']
-        self.assertEqual(mock_publish.call_count, 1)
 
         # Send same idempotency_key with different email/data
         payload2 = {
@@ -75,9 +68,6 @@ class SubmissionAPITests(TestCase):
         self.assertEqual(log.idempotency_key, "idemp-xyz")
         self.assertEqual(log.attempted_email, "different@example.com")
         self.assertEqual(log.original_submission_id, first_id)
-
-        # Kafka publish should NOT be called a second time
-        self.assertEqual(mock_publish.call_count, 1)
 
     def test_invalid_email_returns_400(self):
         """Invalid email formats must return 400 Bad Request."""

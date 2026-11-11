@@ -29,6 +29,7 @@ conn = psycopg2.connect(
     port=os.environ.get('DB_PORT', '5432'),
 )
 c = conn.cursor()
+c.execute("SET TIME ZONE 'UTC'")
 
 start_time = time.time()
 now = datetime.now(timezone.utc)
