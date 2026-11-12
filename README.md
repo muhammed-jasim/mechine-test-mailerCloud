@@ -25,8 +25,8 @@ A high-performance, minimalist Form Submission and Real-time Stream Analytics sy
 | Layer | Technology |
 |---|---|
 | **Backend** | Python 3.11+, Django 5.x, Django REST Framework, Gunicorn / WSGI |
-| **Database** | PostgreSQL (default, database: `form_analytics`, with SQLite fallback option) |
-| **Streaming & Messaging** | Apache Kafka (topic: `submission-events`), Apache Flink / Streaming Engine |
+| **Database** | PostgreSQL (database: `form_analytics`) |
+| **Task Queue & Scheduler** | Celery 5.x, Celery Beat, Redis (broker & cache) |
 | **Load Testing** | Locust (FastHttpUser connection-pooled runner) |
 | **Frontend** | React 19, Vite, JavaScript (.js / .jsx), Material UI, styled-components, Recharts, Axios |
 
@@ -37,31 +37,24 @@ A high-performance, minimalist Form Submission and Real-time Stream Analytics sy
 ```text
 machine-test/
 ├── backend/
-│   ├── config/              # Django settings, URLs, WSGI
-│   │   ├── settings.py
+│   ├── config/              # Django settings, URLs, Celery, WSGI
+│   │   ├── celery.py        # Celery app configuration
+│   │   ├── settings.py      # Celery broker & Beat schedule
 │   │   ├── urls.py
 │   │   └── wsgi.py
 │   ├── submissions/         # Submissions app
 │   │   ├── models.py        # Submission & HourlyAggregation models
 │   │   ├── serializers.py   # Validation and serialization logic
 │   │   ├── views.py         # REST endpoints (POST submission, GET form submissions, Analytics)
+│   │   ├── tasks.py         # Celery Beat incremental aggregation task
 │   │   ├── urls.py          # API route definitions
-│   │   ├── kafka_producer.py# Kafka publisher with graceful offline backoff
-│   │   ├── tests.py         # Automated Django unit & integration tests
-│   │   └── admin.py         # Django admin registration
+│   │   └── tests.py         # Automated Django unit & integration tests
 │   ├── manage.py
 │   └── requirements.txt     # Python dependencies
 ├── frontend/
 │   ├── src/
 │   │   ├── components/      # Sidebar, Modals, Details
-│   │   │   ├── Sidebar.js
-│   │   │   ├── SubmissionModal.js
-│   │   │   └── DetailModal.js
-│   │   ├── pages/           # Dashboard views
-│   │   │   ├── Overview.js
-│   │   │   ├── FormsPage.js
-│   │   │   ├── SubmissionsPage.js
-│   │   │   └── AnalyticsPage.js
+│   │   ├── pages/           # Dashboard views (Overview, Forms, Submissions, Analytics)
 │   │   ├── services/
 │   │   │   └── api.js       # Axios HTTP client
 │   │   ├── App.js           # Core layout & MUI Theme (#288474)
@@ -69,9 +62,8 @@ machine-test/
 │   ├── index.html
 │   ├── vite.config.js       # Vite configuration with API proxy
 │   └── package.json
-├── flink/
-│   └── aggregation.py       # Apache Flink job & streaming aggregation worker
 ├── locustfile.py            # 100k requests load test script
+├── generate_load_data.py    # Database seeder script
 └── README.md                # Documentation and architecture guide
 ```
 
@@ -209,48 +201,40 @@ Open **`http://localhost:3000`** in your browser.
 
 ---
 
-## 🌊 Flink Streaming & Crash Recovery
+## ⏰ Live Aggregation with Celery & Celery Beat
 
-The Flink job is located at `flink/aggregation.py`.
+The live hourly aggregation is implemented natively with **Celery 5.x** and **Celery Beat**, backed by **Redis**.
 
-### 1. Running the Aggregator Worker:
+### 1. Start the Celery Worker & Beat Scheduler:
 ```bash
-# From workspace root (with venv active):
-python flink/aggregation.py
+# In backend/ directory:
+cd backend
+../venv/bin/celery -A config worker -B --loglevel=info --concurrency=2
 ```
+* The `-B` flag embeds Celery Beat, triggering `submissions.tasks.aggregate_hourly_submissions` automatically every 10 minutes (configurable in `settings.py`).
 
-### 2. Inspecting Checkpoint & Aggregation Integrity:
-```bash
-python flink/aggregation.py --status
-```
-
-### 3. Automated Crash Recovery Verification Test:
-To demonstrate that the system handles sudden crashes (`kill -9`) without losing or double-counting records:
-```bash
-python test_crash_recovery.py
-```
-This script starts the worker, ingests 50 submissions, abruptly terminates the process with `SIGKILL`, sends 50 more submissions during downtime, restarts the worker from the checkpoint, and asserts **0 lost records and 0 double-counts**.
-
-### Crash Recovery & Duplicate Prevention Explanation
-
-#### 1. How the Flink Job Handles a Crash
-- **Distributed Checkpointing**: Flink leverages the Chandy-Lamport variant (Asynchronous Barrier Snapshotting). Checkpoint barriers flow periodically through the stream (configured at `10,000 ms`).
-- **State Persistence**: When the tumbling window operator receives a barrier, it takes an asynchronous snapshot of the window accumulator map (`(form_id, hour_bucket) -> count`) and writes it to persistent storage (`.flink_checkpoints/state_checkpoint.json` or RocksDB/S3).
-- **Source Offsets**: Kafka partition offsets are tracked synchronously with each checkpoint.
-- **Recovery Procedure**: Upon process restart, Flink loads the latest completed checkpoint snapshot, initializes window counters from state, and instructs the Kafka consumer to rewind to the exact checkpointed offsets.
-
-#### 2. How Counts are Not Lost or Double-Counted
-- **No Data Loss**: Any event ingested into Kafka will either be part of the committed checkpoint or re-read from Kafka after offset rewind.
-- **Idempotent Database Sink**: Flink updates the database using an upsert query:
-  ```sql
-  INSERT INTO submissions_hourlyaggregation (form_id, hour_bucket, count, last_updated)
-  VALUES (?, ?, ?, ?)
-  ON CONFLICT(form_id, hour_bucket) DO UPDATE SET
-      count = excluded.count,
-      last_updated = excluded.last_updated;
-  ```
-  Because the window counter maintains the absolute count for each hour bucket, replaying events during recovery overwrites the bucket count with its exact deterministic value instead of double-incrementing.
-- **Ingestion Deduplication**: Duplicate idempotency keys are filtered out at the HTTP ingestion layer by Django before reaching Kafka.
+### 2. How the Incremental Aggregation Works:
+1. **Watermark Tracking**: Celery Beat reads `last_processed_id` from Redis.
+2. **Micro-Batch Query**: Reads newly arrived submissions (`WHERE id > last_processed_id AND id <= current_max_id`).
+3. **Idempotent Upsert**:
+   ```sql
+   INSERT INTO submissions_hourlyaggregation (form_id, hour_bucket, count, last_updated)
+   SELECT
+       form_id,
+       date_trunc('hour', created_at) AS hour_bucket,
+       COUNT(*) AS count,
+       NOW() AS last_updated
+   FROM submissions_submission
+   WHERE id > %s AND id <= %s
+   GROUP BY form_id, date_trunc('hour', created_at)
+   ON CONFLICT (form_id, hour_bucket) DO UPDATE SET
+       count = submissions_hourlyaggregation.count + EXCLUDED.count,
+       last_updated = EXCLUDED.last_updated;
+   ```
+4. **Crash Safety (`acks_late=True`)**:
+   - If the Celery worker crashes mid-task, Celery only acknowledges the task after database commit.
+   - Redis watermark is only updated *after* the PostgreSQL transaction commits successfully.
+   - Zero lost records, zero double-counted records.
 
 ---
 

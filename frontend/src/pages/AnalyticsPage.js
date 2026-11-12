@@ -247,7 +247,7 @@ export default function AnalyticsPage() {
           <StorageIcon sx={{ color: '#288474' }} />
           <div>
             <Typography variant="subtitle1" sx={{ fontWeight: 600, color: '#0f172a' }}>
-              Flink Hourly Aggregations Database Table
+              Live Hourly Aggregations Database Table (Celery Beat)
             </Typography>
             <Typography variant="caption" sx={{ color: '#64748b' }}>
               Records aggregated per form_id and hour bucket in the database
@@ -276,7 +276,7 @@ export default function AnalyticsPage() {
               ) : hourlyRecords.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={5} align="center" sx={{ py: 4, color: '#94a3b8' }}>
-                    No persisted Flink hourly buckets yet. Start the Flink job or run submissions to trigger aggregation.
+                    No persisted hourly buckets yet. Celery Beat or submissions will trigger aggregation.
                   </TableCell>
                 </TableRow>
               ) : (

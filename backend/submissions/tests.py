@@ -187,3 +187,32 @@ class SubmissionAPITests(TestCase):
         # Hourly analytics
         res_hourly = self.client.get('/api/analytics/hourly/')
         self.assertEqual(res_hourly.status_code, status.HTTP_200_OK)
+
+    def test_celery_orm_aggregation_task(self):
+        """Test the Celery periodic aggregation task implemented with Django ORM."""
+        from .tasks import aggregate_hourly_submissions, get_redis_client, WATERMARK_KEY
+        from .models import HourlyAggregation
+
+        # Reset watermark for test environment
+        r = get_redis_client()
+        r.set(WATERMARK_KEY, 0)
+
+        Submission.objects.create(
+            form_id="orm-form-task",
+            idempotency_key="orm-task-k1",
+            email="orm@example.com",
+            data={}
+        )
+        Submission.objects.create(
+            form_id="orm-form-task",
+            idempotency_key="orm-task-k2",
+            email="orm2@example.com",
+            data={}
+        )
+
+        # Run ORM aggregation
+        aggregate_hourly_submissions()
+
+        agg = HourlyAggregation.objects.filter(form_id="orm-form-task").first()
+        self.assertIsNotNone(agg)
+        self.assertEqual(agg.count, 2)

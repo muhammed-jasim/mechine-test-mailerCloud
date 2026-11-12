@@ -14,11 +14,11 @@ Outputs the official report with:
 - Actual database row count verification
 """
 
+import os
 import sys
 import time
 import random
 import threading
-import sqlite3
 from pathlib import Path
 from locust import task, events
 from locust.contrib.fasthttp import FastHttpUser
@@ -140,33 +140,23 @@ def on_test_stop(environment, **kwargs):
     total_completed = _stored_count + _duplicates_reported + _errors_count
     rps = total_completed / duration
 
-    # Query the actual database row count directly from PostgreSQL (or SQLite)
+    # Query actual database counts using pure Django ORM
     actual_db_submissions = 0
+    actual_db_duplicates = 0
     try:
-        import os
-        import psycopg2
-        conn = psycopg2.connect(
-            dbname=os.environ.get('DB_NAME', 'form_analytics'),
-            user=os.environ.get('DB_USER', 'jssim'),
-            password=os.environ.get('DB_PASSWORD', ''),
-            host=os.environ.get('DB_HOST', 'localhost'),
-            port=os.environ.get('DB_PORT', '5432'),
-        )
-        c = conn.cursor()
-        c.execute("SELECT COUNT(*) FROM submissions_submission")
-        actual_db_submissions = c.fetchone()[0]
-        conn.close()
-    except Exception:
-        try:
-            import sqlite3
-            db_path = Path(__file__).resolve().parent / 'backend' / 'db.sqlite3'
-            conn = sqlite3.connect(str(db_path))
-            c = conn.cursor()
-            c.execute("SELECT COUNT(*) FROM submissions_submission")
-            actual_db_submissions = c.fetchone()[0]
-            conn.close()
-        except Exception as e:
-            actual_db_submissions = f"Error reading DB: {e}"
+        import django
+        backend_dir = str(Path(__file__).resolve().parent / 'backend')
+        if backend_dir not in sys.path:
+            sys.path.insert(0, backend_dir)
+
+        os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
+        django.setup()
+
+        from submissions.models import Submission, DuplicateLog
+        actual_db_submissions = Submission.objects.count()
+        actual_db_duplicates = DuplicateLog.objects.count()
+    except Exception as e:
+        actual_db_submissions = f"Error reading DB via ORM: {e}"
 
     print("\n" + "=" * 70)
     print("                 OFFICIAL LOCUST LOAD TEST REPORT                ")
@@ -177,5 +167,6 @@ def on_test_stop(environment, **kwargs):
     print(f" Errors Encountered              : {_errors_count:,}")
     print(f" Total Duration                  : {duration:.2f} seconds")
     print(f" Throughput (Requests / Second)  : {rps:.2f} RPS")
-    print(f" Actual Submissions in Database  : {actual_db_submissions:,}")
+    print(f" Actual Submissions in DB (ORM)  : {actual_db_submissions:,}")
+    print(f" Actual Duplicate Logs in DB(ORM): {actual_db_duplicates:,}")
     print("=" * 70)

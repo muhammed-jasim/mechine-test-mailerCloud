@@ -88,9 +88,25 @@ REST_FRAMEWORK = {
 CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOW_CREDENTIALS = True
 
-# Kafka configuration
-KAFKA_BOOTSTRAP_SERVERS = os.environ.get('KAFKA_BOOTSTRAP_SERVERS', 'localhost:9092')
-KAFKA_TOPIC_SUBMISSIONS = 'submission-events'
+# Celery & Celery Beat Configuration
+CELERY_BROKER_URL = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
+CELERY_RESULT_BACKEND = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = 'UTC'
+CELERY_ENABLE_UTC = True
+CELERY_TASK_ACKS_LATE = True
+
+from celery.schedules import crontab
+
+# Periodic Beat Schedule: Run incremental hourly aggregation every 10 minutes
+CELERY_BEAT_SCHEDULE = {
+    'aggregate-hourly-submissions-every-10-mins': {
+        'task': 'submissions.tasks.aggregate_hourly_submissions',
+        'schedule': crontab(minute='*/10'),  # Runs every 10 minutes (:00, :10, :20, :30, :40, :50)
+    },
+}
 
 # Internationalization
 LANGUAGE_CODE = 'en-us'
