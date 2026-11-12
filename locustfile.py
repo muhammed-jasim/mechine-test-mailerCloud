@@ -18,6 +18,7 @@ import os
 import sys
 import time
 import random
+import uuid
 import threading
 from pathlib import Path
 from locust import task, events
@@ -26,6 +27,9 @@ from locust.contrib.fasthttp import FastHttpUser
 TOTAL_TARGET_REQUESTS = 100000
 UNIQUE_TARGET_REQUESTS = 80000
 DUPLICATE_TARGET_REQUESTS = 20000
+
+# Unique prefix per test run so 80,000 are brand new and 20,000 are exact duplicates
+RUN_ID = os.environ.get('LOAD_RUN_ID', uuid.uuid4().hex[:6])
 
 # Thread-safe synchronization
 _lock = threading.Lock()
@@ -43,10 +47,10 @@ _test_completed = False
 # Total = 100,000 requests.
 PLAN_KEYS = []
 for i in range(UNIQUE_TARGET_REQUESTS):
-    PLAN_KEYS.append(f"load-key-{i}")
+    PLAN_KEYS.append(f"k-{RUN_ID}-{i}")
 
 for i in range(DUPLICATE_TARGET_REQUESTS):
-    PLAN_KEYS.append(f"load-key-{i}")
+    PLAN_KEYS.append(f"k-{RUN_ID}-{i}")
 
 # Shuffle with fixed seed for realistic interleaved distribution
 random.seed(1337)
@@ -55,6 +59,9 @@ random.shuffle(PLAN_KEYS)
 
 class FastSubmissionUser(FastHttpUser):
     wait_time = lambda self: 0
+    network_timeout = 15.0
+    connection_timeout = 15.0
+    max_retries = 3
 
     @task
     def submit_form(self):
@@ -96,30 +103,37 @@ class FastSubmissionUser(FastHttpUser):
         }
 
         try:
-            response = self.client.post(
+            with self.client.post(
                 "/api/submissions/",
                 json=payload,
-                name="POST /api/submissions/"
-            )
-            with _lock:
+                name="POST /api/submissions/",
+                catch_response=True
+            ) as response:
                 if response.status_code == 201:
-                    _stored_count += 1
+                    response.success()
+                    with _lock:
+                        _stored_count += 1
                 elif response.status_code == 200:
-                    _duplicates_reported += 1
+                    response.success()
+                    with _lock:
+                        _duplicates_reported += 1
                 else:
-                    _errors_count += 1
+                    response.failure(f"HTTP {response.status_code}")
+                    with _lock:
+                        _errors_count += 1
 
-                completed = _stored_count + _duplicates_reported + _errors_count
-                if completed % 10000 == 0:
-                    elapsed = time.time() - _start_time
-                    current_rps = completed / max(elapsed, 0.001)
-                    print(f"  Progress: {completed:,} / {TOTAL_TARGET_REQUESTS:,} requests ({current_rps:.1f} RPS)")
+                with _lock:
+                    completed = _stored_count + _duplicates_reported + _errors_count
+                    if completed % 10000 == 0:
+                        elapsed = time.time() - _start_time
+                        current_rps = completed / max(elapsed, 0.001)
+                        print(f"  Progress: {completed:,} / {TOTAL_TARGET_REQUESTS:,} requests ({current_rps:.1f} RPS)")
 
-                if completed >= TOTAL_TARGET_REQUESTS and not _test_completed:
-                    _test_completed = True
-                    _end_time = time.time()
-                    print("\n[Target Reached] All 100,000 requests completed. Stopping runner...")
-                    self.environment.runner.quit()
+                    if completed >= TOTAL_TARGET_REQUESTS and not _test_completed:
+                        _test_completed = True
+                        _end_time = time.time()
+                        print("\n[Target Reached] All 100,000 requests completed. Stopping runner...")
+                        self.environment.runner.quit()
         except Exception:
             with _lock:
                 _errors_count += 1

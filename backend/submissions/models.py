@@ -72,3 +72,17 @@ class DuplicateLog(models.Model):
 
     def __str__(self):
         return f"Duplicate [{self.idempotency_key}] on form '{self.form_id}' at {self.detected_at}"
+
+
+class AggregationWatermark(models.Model):
+    """
+    Persists the stream processing watermark inside PostgreSQL
+    in the same ACID transaction as the aggregation counts.
+    Ensures crash recovery without double-counting or state desync.
+    """
+    key = models.CharField(max_length=64, unique=True, default='submission_aggregation')
+    last_processed_id = models.BigIntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Watermark [{self.key}]: {self.last_processed_id}"

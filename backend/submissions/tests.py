@@ -190,12 +190,8 @@ class SubmissionAPITests(TestCase):
 
     def test_celery_orm_aggregation_task(self):
         """Test the Celery periodic aggregation task implemented with Django ORM."""
-        from .tasks import aggregate_hourly_submissions, get_redis_client, WATERMARK_KEY
+        from .tasks import aggregate_hourly_submissions
         from .models import HourlyAggregation
-
-        # Reset watermark for test environment
-        r = get_redis_client()
-        r.set(WATERMARK_KEY, 0)
 
         Submission.objects.create(
             form_id="orm-form-task",
@@ -215,4 +211,9 @@ class SubmissionAPITests(TestCase):
 
         agg = HourlyAggregation.objects.filter(form_id="orm-form-task").first()
         self.assertIsNotNone(agg)
+        self.assertEqual(agg.count, 2)
+
+        # Re-running task simulates retry/recovery - must NOT double-count!
+        aggregate_hourly_submissions()
+        agg.refresh_from_db()
         self.assertEqual(agg.count, 2)
